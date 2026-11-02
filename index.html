@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <title>GTA V Map - Pumpkin Live Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body, html, #map {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0fa8d2;
+      font-family: sans-serif;
+    }
+    .pumpkin-icon {
+      font-size: 32px;
+      line-height: 1;
+      text-align: center;
+      cursor: grab;
+      user-select: none;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
+    }
+    .pumpkin-icon:active {
+      cursor: grabbing;
+    }
+    .controls {
+      position: absolute;
+      top: 15px;
+      left: 60px;
+      z-index: 1000;
+      background: rgba(18, 18, 18, 0.9);
+      padding: 10px 16px;
+      border-radius: 8px;
+      color: #fff;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    button.btn-add {
+      background: #ff7b00;
+      color: #fff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    button.btn-add:hover {
+      background: #e06d00;
+    }
+    .btn-delete {
+      background: #e63946;
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 12px;
+      margin-top: 5px;
+    }
+    .btn-delete:hover {
+      background: #c1121f;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="controls">
+    <button class="btn-add" id="addPumpkinBtn">🎃 Adaugă Dovleac</button>
+    <span>Trage dovleacul sau dă click pe el pentru ștergere.</span>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { 
+      getDatabase, 
+      ref, 
+      push, 
+      set, 
+      update, 
+      remove, 
+      onChildAdded, 
+      onChildChanged, 
+      onChildRemoved 
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDLGnIOfAS2VXz_ao8fE12g1vItJY0NP5g",
+      authDomain: "gta-pumpkins.firebaseapp.com",
+      databaseURL: "https://gta-pumpkins-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "gta-pumpkins",
+      storageBucket: "gta-pumpkins.firebasestorage.app",
+      messagingSenderId: "217343404369",
+      appId: "1:217343404369:web:57062f30997247f4768b70"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const pumpkinsRef = ref(db, 'pumpkins');
+
+    const mapWidth = 5000;
+    const mapHeight = 5000;
+    const bounds = [[0, 0], [mapHeight, mapWidth]];
+
+    const map = L.map('map', {
+      crs: L.CRS.Simple,
+      minZoom: -3,
+      maxZoom: 2,
+      maxBounds: bounds
+    });
+
+    L.imageOverlay('gta_map.png', bounds).addTo(map);
+    map.fitBounds(bounds);
+    map.setView([mapHeight / 2, mapWidth / 2], -1);
+
+    const pumpkinIcon = L.divIcon({
+      className: 'pumpkin-icon',
+      html: '🎃',
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
+    });
+
+    const markers = {};
+
+    document.getElementById('addPumpkinBtn').addEventListener('click', () => {
+      const center = map.getCenter();
+      const newRef = push(pumpkinsRef);
+      set(newRef, {
+        x: Math.round(center.lng),
+        y: Math.round(center.lat)
+      });
+    });
+
+    onChildAdded(pumpkinsRef, (snapshot) => {
+      const id = snapshot.key;
+      const data = snapshot.val();
+
+      const marker = L.marker([data.y, data.x], {
+        icon: pumpkinIcon,
+        draggable: true
+      }).addTo(map);
+
+      const popupHtml = `
+        <div style="text-align: center;">
+          <p style="margin: 0 0 6px 0; font-weight: bold; font-size: 13px;">Opțiuni Dovleac</p>
+          <button class="btn-delete" id="del-${id}">Șterge</button>
+        </div>
+      `;
+      marker.bindPopup(popupHtml);
+
+      marker.on('popupopen', () => {
+        const btn = document.getElementById(`del-${id}`);
+        if (btn) {
+          btn.onclick = () => {
+            if (confirm('Sigur vrei să ștergi acest dovleac?')) {
+              remove(ref(db, `pumpkins/${id}`));
+            }
+          };
+        }
+      });
+
+      marker.on('contextmenu', () => {
+        if (confirm('Sigur vrei să ștergi acest dovleac?')) {
+          remove(ref(db, `pumpkins/${id}`));
+        }
+      });
+
+      marker.on('dragend', () => {
+        const pos = marker.getLatLng();
+        update(ref(db, `pumpkins/${id}`), {
+          x: Math.round(pos.lng),
+          y: Math.round(pos.lat)
+        });
+      });
+
+      markers[id] = marker;
+    });
+
+    onChildChanged(pumpkinsRef, (snapshot) => {
+      const id = snapshot.key;
+      const data = snapshot.val();
+      const marker = markers[id];
+
+      if (marker) {
+        const currentPos = marker.getLatLng();
+        if (currentPos.lat !== data.y || currentPos.lng !== data.x) {
+          marker.setLatLng([data.y, data.x]);
+        }
+      }
+    });
+
+    onChildRemoved(pumpkinsRef, (snapshot) => {
+      const id = snapshot.key;
+      if (markers[id]) {
+        map.removeLayer(markers[id]);
+        delete markers[id];
+      }
+    });
+  </script>
+</body>
+</html>
